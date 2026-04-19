@@ -1,48 +1,93 @@
 import 'package:flutter/material.dart';
+
 import '../fonts/appColor.dart';
 
-class Reprintlist extends StatefulWidget {
-  const Reprintlist({super.key});
+class ModernReprintScreen extends StatefulWidget {
+  const ModernReprintScreen({Key? key}) : super(key: key);
 
   @override
-  State<Reprintlist> createState() => _ReprintlistState();
+  State<ModernReprintScreen> createState() => _ModernReprintScreenState();
 }
 
-class _ReprintlistState extends State<Reprintlist> {
-  TextEditingController _search = TextEditingController();
-  List<dynamic> _reprintDataFilter = [];
+class _ModernReprintScreenState extends State<ModernReprintScreen> {
+  DateTimeRange? _selectedDateRange;
 
-  final List<Map<String, dynamic>> _reprintData = List.generate(
-    15,
-    (index) => {
-      'date': '24 Apr 2026',
-      'docNo': 'RE-${800120 + index}',
-      'customer': 'Der Asia Tours Co., Ltd.',
-      'amount': (1250.00 + (index * 150)).toStringAsFixed(2),
-      'status': index % 4 == 0 ? 'Cancelled' : 'Completed',
-    },
-  );
-
-  void search(String keyword) {
-    final result = _reprintData.where((item) {
-      final rsvn = item['date']?.toLowerCase() ?? '';
-      final voucher = item['docNo']?.toLowerCase() ?? '';
-      final input = keyword.toLowerCase();
-
-      return rsvn.contains(input) || voucher.contains(input);
-    }).toList();
-
-    setState(() {
-      _reprintDataFilter = result;
-    });
+  // Helper method to format dates nicely without needing the 'intl' package
+  String _formatDate(DateTime date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
   }
-  
+
+  // Mock data utilizing real DateTime objects for accurate filtering
+  late final List<Map<String, dynamic>> _reprintData;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _reprintData = List.generate(
+      15,
+      (index) {
+        // Generate mock dates spread across the last 30 days
+        final itemDate = now.subtract(Duration(days: index * 2));
+        return {
+          'rawDate': itemDate,
+          'dateStr': _formatDate(itemDate),
+          'docNo': 'RE-${800120 + index}',
+          'customer': 'Der Asia Tours Co., Ltd.',
+          'amount': (1250.00 + (index * 150)).toStringAsFixed(2),
+          'status': index % 4 == 0 ? 'Cancelled' : 'Completed',
+        };
+      },
+    );
+  }
+
+  // The getter that actively filters the list based on the selected date range
+  List<Map<String, dynamic>> get _filteredData {
+    if (_selectedDateRange == null) return _reprintData;
+
+    return _reprintData.where((item) {
+      DateTime itemDate = item['rawDate'];
+      // Check if the date falls inside the selected range (inclusive)
+      return itemDate.isAfter(_selectedDateRange!.start.subtract(const Duration(days: 1))) &&
+             itemDate.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
+    }).toList();
+  }
+
+  // Function to show the Date Range Picker
+  Future<void> _selectDateRange() async {
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2000), // Adjust to your business logic
+      lastDate: DateTime.now().add(const Duration(days: 365)), 
+      initialDateRange: _selectedDateRange,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF2563EB), // Matches your primary blue
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null && picked != _selectedDateRange) {
+      setState(() {
+        _selectedDateRange = picked;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reprint Receipt', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         backgroundColor: AppColors.pinkcm,
+        title: const Text('Reprint', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
@@ -70,6 +115,8 @@ class _ReprintlistState extends State<Reprintlist> {
     );
   }
 
+  // --- UI Components ---
+
   Widget _buildHeader() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -78,11 +125,11 @@ class _ReprintlistState extends State<Reprintlist> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'รายการพิมพ์ใบเสร็จย้อนหลัง', // Reprint List
+              'รายการพิมพ์ใบเสร็จย้อนหลัง',
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF0F172A), // Slate 900
+                color: Color(0xFF0F172A),
               ),
             ),
             const SizedBox(height: 4),
@@ -100,6 +147,8 @@ class _ReprintlistState extends State<Reprintlist> {
   }
 
   Widget _buildSearchAndFilter() {
+    final hasFilter = _selectedDateRange != null;
+
     return Row(
       children: [
         Expanded(
@@ -112,39 +161,39 @@ class _ReprintlistState extends State<Reprintlist> {
               border: Border.all(color: Colors.grey.shade300),
             ),
             child: TextField(
-              controller: _search,
-              onChanged: (value) {
-                search(value);
-              },
               decoration: InputDecoration(
                 hintText: 'Search by Document No. or Customer...',
                 hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
                 prefixIcon: const Icon(Icons.search, color: Colors.grey),
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                suffixIcon: _search.text.isNotEmpty
-                ? IconButton(
-                    icon: Icon(Icons.cancel, color: Colors.red.shade300),
-                    onPressed: () {
-                      _search.clear();
-                      search('');
-                    },
-                  )
-                : null,
               ),
             ),
           ),
         ),
-        const Spacer(flex: 3), // Pushes search bar to the left
-        // Date Filter Button
+        const Spacer(flex: 3),
+        
+        // Dynamic Date Filter Button
         OutlinedButton.icon(
-          onPressed: () {},
-          icon: const Icon(Icons.calendar_today_outlined, size: 18),
-          label: const Text('Filter by Date'),
+          onPressed: hasFilter ? () => setState(() => _selectedDateRange = null) : _selectDateRange,
+          icon: Icon(
+            hasFilter ? Icons.clear : Icons.calendar_today_outlined, 
+            size: 18,
+            color: hasFilter ? Colors.redAccent : const Color(0xFF0F172A),
+          ),
+          label: Text(
+            hasFilter 
+              ? '${_formatDate(_selectedDateRange!.start)} - ${_formatDate(_selectedDateRange!.end)}' 
+              : 'Filter by Date',
+            style: TextStyle(
+              color: hasFilter ? Colors.redAccent : const Color(0xFF0F172A),
+              fontWeight: hasFilter ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
           style: OutlinedButton.styleFrom(
-            foregroundColor: const Color(0xFF0F172A),
+            backgroundColor: hasFilter ? Colors.red.shade50 : Colors.transparent,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            side: BorderSide(color: Colors.grey.shade300),
+            side: BorderSide(color: hasFilter ? Colors.redAccent.shade100 : Colors.grey.shade300),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
             ),
@@ -155,6 +204,8 @@ class _ReprintlistState extends State<Reprintlist> {
   }
 
   Widget _buildDataTable() {
+    final dataToDisplay = _filteredData; // Use the dynamically filtered list
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -172,9 +223,9 @@ class _ReprintlistState extends State<Reprintlist> {
         children: [
           // Table Header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF1F5F9), // Very light slate
+              color: const Color(0xFFF1F5F9),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
               border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
             ),
@@ -189,19 +240,27 @@ class _ReprintlistState extends State<Reprintlist> {
               ],
             ),
           ),
-          // Table Body
+          
+          // Table Body or Empty State
           Expanded(
-            child: _reprintDataFilter.isEmpty ? _buildEmptyState(Icons.manage_search_rounded, 'ไม่พบข้อมูลที่ค้นหา') : ListView.separated(
-              itemCount: _reprintDataFilter.length,
-              separatorBuilder: (context, index) => Divider(
-                height: 1,
-                color: Colors.grey.shade100,
-              ),
-              itemBuilder: (context, index) {
-                final item = _reprintDataFilter[index];
-                return _buildTableRow(item);
-              },
-            ),
+            child: dataToDisplay.isEmpty
+                ? Center(
+                    child: Text(
+                      'No documents found for this date range.',
+                      style: TextStyle(color: Colors.grey.shade500, fontSize: 16),
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: dataToDisplay.length,
+                    separatorBuilder: (context, index) => Divider(
+                      height: 1,
+                      color: Colors.grey.shade100,
+                    ),
+                    itemBuilder: (context, index) {
+                      final item = dataToDisplay[index];
+                      return _buildTableRow(item);
+                    },
+                  ),
           ),
         ],
       ),
@@ -212,15 +271,13 @@ class _ReprintlistState extends State<Reprintlist> {
     final bool isCompleted = item['status'] == 'Completed';
 
     return InkWell(
-      onTap: () {
-        
-      },
+      onTap: () {},
       hoverColor: const Color(0xFFF8FAFC),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
         child: Row(
           children: [
-            _tableDataCell(item['date'], flex: 2),
+            _tableDataCell(item['dateStr'], flex: 2),
             _tableDataCell(item['docNo'], flex: 2, isBold: true),
             _tableDataCell(item['customer'], flex: 4),
             _tableDataCell(item['amount'], flex: 2, isRightAligned: true, isBold: true),
@@ -247,17 +304,17 @@ class _ReprintlistState extends State<Reprintlist> {
               ),
             ),
 
-            // Action Button (Reprint)
+            // Action Button
             Expanded(
               flex: 1,
               child: Center(
                 child: IconButton(
                   onPressed: () {
-                    // Trigger reprint logic here
+
                   },
                   icon: const Icon(Icons.print_rounded),
-                  color: AppColors.darkPink, // Primary Blue
-                  tooltip: 'Reprint receipt',
+                  color: AppColors.darkPink,
+                  tooltip: 'Reprint Document',
                   splashRadius: 24,
                 ),
               ),
@@ -296,19 +353,6 @@ class _ReprintlistState extends State<Reprintlist> {
           fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
           color: const Color(0xFF0F172A),
         ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(IconData icon, String title) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 48, color: Colors.grey.shade300), //inbox_rounded
-          const SizedBox(height: 16),
-          Text(title, style: TextStyle(fontSize: 18, color: Colors.grey.shade500)),
-        ],
       ),
     );
   }

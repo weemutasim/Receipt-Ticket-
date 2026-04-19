@@ -33,6 +33,17 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script>
+    function autoPrint(url) {
+      var iframe = document.createElement('iframe');
+      iframe.style.visibility = 'hidden';
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      iframe.onload = function () {
+        iframe.contentWindow.print();
+      };
+    }
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

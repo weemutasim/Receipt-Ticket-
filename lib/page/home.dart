@@ -1,7 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:receipt_ticket/api/dbConnect.dart';
 import 'package:receipt_ticket/model/mdReceipt.dart';
-
+import 'dart:js' as js;
+import 'dart:html' as html;
 import '../fonts/appColor.dart';
+import '../model/mdReceiptTicket.dart';
 import '../receipt/invoice.dart';
 
 class Home extends StatefulWidget {
@@ -12,35 +17,23 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  final List<dynamic> companies = [
-    {"code": "05926", "name": "3T DMC Co., Ltd. (Green Mind Travel)", "taxId": "0123456789012", "address": "123 Green Way, Bangkok"},
-    {"code": "07399", "name": "888 Travel and Transport", "taxId": "0987654321098", "address": "456 Transport Rd, Bangkok"},
-    {"code": "07637", "name": "A & D Holidays Co., Ltd. (Other)", "taxId": "1122334455667", "address": "789 Holiday Ave, Phuket"},
-    {"code": "07796", "name": "A & S Travel Service (Thailand) Co., Ltd.", "taxId": "0835560017615", "address": "197 Pracharuamjai 59, Sai Kongdintai, Klong Sam Wa, Bangkok 10250"},
-    {"code": "E0149", "name": "A Class Worldwide Co., Ltd.", "taxId": "9988776655443", "address": "101 Classy Blvd, Chiang Mai"},
-  ];
+  String selectedCompanyCode = "";
 
-  final List<dynamic> taxRecords = [
-    {"res_code": "LE57V", "voucher": "3376239", "pax": "1", "mintax": "0300229018", "maxtax": "0300229018", "status": "S+D"},
-    {"res_code": "LER1X", "voucher": "Naveen", "pax": "4", "mintax": "0400597178", "maxtax": "0400597181", "status": "S+D"},
-    {"res_code": "LEN9Y", "voucher": "3369279", "pax": "4", "mintax": "0500709190", "maxtax": "0500709193", "status": "S+D"},
-  ];
-
-  String selectedCompanyCode = "05926";
-  bool isReceiptSelected = true;
-
+  TextEditingController searchController = TextEditingController();
   late TextEditingController _codeController;
   late TextEditingController _nameController;
   late TextEditingController _addressController;
 
-  // List<dynamic> itemList = []; //รายการโหลด
+  List<TkReceiptModel> dataTkRecipt = []; //รายการโหลด
+  List<TkReceiptModel> dataTkReciptFilter = [];
+  TkReceiptModel? dataTkReciptOnly; //รายการโหลด 1 รายการ
 
   @override
   void initState() {
-    final initialCompany = companies.firstWhere((c) => c['code'] == selectedCompanyCode);
-    _codeController = TextEditingController(text: initialCompany['code']);
-    _nameController = TextEditingController(text: initialCompany['name']);
-    _addressController = TextEditingController(text: initialCompany['address']);
+    _codeController = TextEditingController();
+    _nameController = TextEditingController();
+    _addressController = TextEditingController();
+    _dBTkReceipt();
 
     super.initState();
   }
@@ -54,24 +47,71 @@ class _HomeState extends State<Home> {
     super.dispose();
   }
 
-  void _updateFormFields(Map<String, String> company) {
-    _codeController.text = company['code'] ?? '';
-    _nameController.text = company['name'] ?? '';
-    _addressController.text = company['address'] ?? '';
+  Future<void> _dBTkReceipt() async {
+    await DbConnect().getTkReceipt().then((onValue) {
+      if(onValue != null) {
+        setState(() {
+          dataTkRecipt = onValue;
+          dataTkReciptFilter = onValue;
+        });
+      }
+    });
+  }
+
+  void search(String keyword) {
+    final result = dataTkRecipt.where((item) {
+      final rsvn = item.rsvn?.toLowerCase() ?? '';
+      final voucher = item.voucher?.toLowerCase() ?? '';
+      final input = keyword.toLowerCase();
+
+      return rsvn.contains(input) || voucher.contains(input);
+    }).toList();
+
+    setState(() {
+      dataTkReciptFilter = result;
+    });
+  }
+
+  void _updateFormFields(TkReceiptModel data) {
+    _codeController.text = data.agentcode ?? '';
+    _nameController.text = data.customerName ?? '';
+    _addressController.text = '${data.addressPp1}'; //${data.addressPp2} ${data.pppostCode}
+  }
+
+  void _printDirectly(Uint8List pdfBytes) {
+    final blob = html.Blob([pdfBytes], "application/pdf");
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    js.context.callMethod("autoPrint", [url]);
+    html.Url.revokeObjectUrl(url);
   }
 
   @override
   Widget build(BuildContext context) {
+    String getType() {
+      final hasTk = double.parse(dataTkReciptOnly?.tk ?? '0') > 0;
+      final hasTr = double.parse(dataTkReciptOnly?.tr ?? '0') > 0;
+    
+      if (hasTk && hasTr) return 'TK+TR';
+      if (hasTk) return 'TK';
+      if (hasTr) return 'TR';
+      return '';
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Update Row Tax', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        title: const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Receipt Ticket', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            Text('v1.0.1', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 13)),
+          ],
+        ),
+        backgroundColor: AppColors.pinkcm,
         elevation: 0,
       ),
       body: Row(
         children: [
-          // LEFT PANEL: Master List
           Expanded(
             flex: 2,
             child: Container(
@@ -82,88 +122,131 @@ class _HomeState extends State<Home> {
               child: _buildCompanyList(),
             ),
           ),
-          // RIGHT PANEL: Details & Data
           Expanded(
             flex: 5,
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('รายละเอียด', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.darkPink,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                        ),
-                        onPressed: () {
-                          Invoice().generateInvoice(data: Detail(), itemList: []).then((onValue) {
+            child: _buildCompanyInfo(getType()),
+          ),
+        ],
+      ),
+    );
+  }
 
-                          });
-                        },
-                        icon: const Icon(Icons.print_rounded, size: 20),
-                        label: const Text('Save /Print', style: TextStyle(fontWeight: FontWeight.w600)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  _buildCompanyDetailsCard(), // Now contains editable fields
-                  const SizedBox(height: 24),
-                  const Text('รายการโหลด /วัน', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                    ),
-                    child: Row(
-                      children: [
-                        listHeader('Res code', 2),
-                        listHeader('Voucher', 3),
-                        listHeader('Pax', 2),
-                        listHeader('Mintax', 3),
-                        listHeader('Maxtax', 3),
-                        listHeader('Status', 2),
-                      ],
-                    ),
-                  ),
-                  if (taxRecords.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(30),
-                      child: Center(child: Text("ไม่มีรายการโหลด", style: TextStyle(color: Colors.grey))),
+  Padding _buildCompanyInfo(String getType) {
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('รายละเอียด', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.darkPink,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                ),
+                onPressed: () async {
+                  TkReceiptModel dataSave = TkReceiptModel();
+                  dataSave.rsvn = dataTkReciptOnly?.rsvn;
+                  dataSave.id = dataTkReciptOnly?.id;
+                  dataSave.voucher = dataTkReciptOnly?.voucher;
+                  dataSave.mintax = dataTkReciptOnly?.mintax;
+                  dataSave.maxtax = dataTkReciptOnly?.maxtax;
+                  dataSave.pax = dataTkReciptOnly?.pax;
+                  dataSave.accode = dataTkReciptOnly?.accode;
+                  dataSave.agentcode = dataTkReciptOnly?.agentcode;
+                  dataSave.customerName = dataTkReciptOnly?.customerName;
+                  dataSave.custaxidno = dataTkReciptOnly?.custaxidno;
+                  dataSave.ppcName = dataTkReciptOnly?.ppcName;
+                  dataSave.addressPp1 = dataTkReciptOnly?.addressPp1;
+                  dataSave.addressPp2 = dataTkReciptOnly?.addressPp2;
+                  dataSave.pppostCode = dataTkReciptOnly?.pppostCode;
+                  dataSave.branchtax = dataTkReciptOnly?.branchtax;
+                  dataSave.docno = dataTkReciptOnly?.docno;
+                  dataSave.tk = dataTkReciptOnly?.tk;
+                  dataSave.tr = dataTkReciptOnly?.tr;
+                  dataSave.total = dataTkReciptOnly?.total;
+
+                  // await DbConnect().insertReceipt(data: dataSave);
+                  print('save: ${jsonEncode(dataSave)}');
+                  _codeController.clear();
+                  _nameController.clear();
+                  _addressController.clear();
+                  dataTkReciptOnly = null;
+                  setState(() {
+                    selectedCompanyCode = '';
+                  });
+                  // DbConnect().insertReceipt(data)
+                  /* dataRecipt.add(
+                    Detail(
+                      acReportName: 'Credit',
+                      accode: '114',
+                      address: 'A Class Worldwide Co., Ltd.9988776655443 101 Classy Blvd, Chiang Mai',
+                      agentname: '',
+                      amount: '4100.00',
+                      bankAccount: '0123456789',
+                      docdate: '2025-11-30 00:00:00',
+                      docno: '2025-11-30 00:00:00',
+                      extcode: '02444',
+                      issue: '2025-11-30 17:52:04',
+                      recivetype: '0=1235',
+                      referno: '29-11-25',
+                      trdate: '2025-11-30 17:52:04',
+                      trrunno: 'CP000012345'
                     )
-                  else
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: taxRecords.length,
-                      separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
-                      itemBuilder: (context, index) {
-                        final item = taxRecords[index];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          child: Row(
-                            children: [
-                              listBody(item['res_code'] ?? '', 2, TextAlign.left),
-                              listBody(item['voucher']  ?? '', 3, TextAlign.left),
-                              listBody(item['pax']  ?? '', 2, TextAlign.left),
-                              listBody(item['mintax'] ?? '', 3, TextAlign.left),
-                              listBody(item['maxtax'] ?? '', 3, TextAlign.left),
-                              listBody(item['status'] ?? '', 2, TextAlign.left, isBold: true),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                ],
+                  ); 
+                  Invoice().generateInvoice(data: , itemList: []).then((onValue) {
+                    _printDirectly(onValue);
+                  });*/
+                },
+                icon: const Icon(Icons.print_rounded, size: 20),
+                label: const Text('Save /Print', style: TextStyle(fontWeight: FontWeight.w600)),
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _buildCompanyDetailsCard(),
+          const SizedBox(height: 24),
+          const Text('รายการโหลด /วัน', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade200,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(
+              children: [
+                listHeader('RSVN', 2),
+                listHeader('Voucher', 3),
+                listHeader('Pax', 2),
+                listHeader('Mintax', 3),
+                listHeader('Maxtax', 3),
+                listHeader('Status', 2),
+              ],
             ),
           ),
+          if (dataTkReciptOnly == null)
+            const Padding(
+              padding: EdgeInsets.all(30),
+              child: Center(child: Text("ไม่มีรายการโหลด", style: TextStyle(color: Colors.grey))),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              child: Row(
+                children: [
+                  listBody(dataTkReciptOnly?.rsvn ?? '', 2, TextAlign.left),
+                  listBody(dataTkReciptOnly?.voucher  ?? '', 3, TextAlign.left),
+                  listBody(dataTkReciptOnly?.pax  ?? '', 2, TextAlign.left),
+                  listBody(dataTkReciptOnly?.mintax ?? '', 3, TextAlign.left),
+                  listBody(dataTkReciptOnly?.maxtax ?? '', 3, TextAlign.left),
+                  listBody(getType, 2, TextAlign.left, isBold: true),
+                ],
+              ),
+            )
         ],
       ),
     );
@@ -173,7 +256,6 @@ class _HomeState extends State<Home> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Modern Header & Search
         Container(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
           child: Column(
@@ -194,6 +276,13 @@ class _HomeState extends State<Home> {
                     ),
                     onPressed: () {
                       Navigator.pushNamed(context, '/reprint');
+                      _codeController.clear();
+                      _nameController.clear();
+                      _addressController.clear();
+                      dataTkReciptOnly = null;
+                      setState(() {
+                        selectedCompanyCode = '';
+                      });
                     },
                     child: const Text('รายการ Reprint', style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
@@ -201,14 +290,27 @@ class _HomeState extends State<Home> {
               ),
               const SizedBox(height: 16),
               TextField(
+                controller: searchController,
+                onChanged: (value) {
+                  search(value);
+                },
                 decoration: InputDecoration(
                   hintText: 'Search...',
                   hintStyle: TextStyle(color: Colors.grey.shade500),
                   prefixIcon: Icon(Icons.search, color: Colors.grey.shade600),
+                  suffixIcon: searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: Icon(Icons.close, color: Colors.grey.shade600),
+                        onPressed: () {
+                          searchController.clear();
+                          search('');
+                        },
+                      )
+                    : null,
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10), // Modern pill shape
+                    borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide.none, 
                   ),
                   enabledBorder: OutlineInputBorder(
@@ -225,16 +327,14 @@ class _HomeState extends State<Home> {
             ],
           ),
         ),
-        
-        // Modern List View
         Expanded(
-          child: ListView.separated(
+          child: dataTkReciptFilter.isEmpty ? _buildEmptyState(Icons.manage_search_rounded, 'ไม่พบข้อมูลที่ค้นหา') : ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: companies.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8), // Gap between cards
+            itemCount: dataTkReciptFilter.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
-              final company = companies[index];
-              final isSelected = company['code'] == selectedCompanyCode;
+              final item = dataTkReciptFilter[index];
+              final isSelected = item.id == selectedCompanyCode;
               
               return AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
@@ -246,7 +346,7 @@ class _HomeState extends State<Home> {
                     width: 1,
                   ),
                   boxShadow: [
-                    if (!isSelected) // Only show shadow if not selected (makes selected look "pressed")
+                    if (!isSelected)
                       BoxShadow(
                         color: Colors.grey.shade200,
                         blurRadius: 6,
@@ -266,7 +366,7 @@ class _HomeState extends State<Home> {
                     ),
                   ), */
                   title: Text(
-                    company['name']!,
+                    item.customerName ?? '',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -279,15 +379,15 @@ class _HomeState extends State<Home> {
                     child: Row(
                       children: [
                         Text(
-                          'Code:',
+                          'rsvn: ${item.rsvn ?? ''}',
                           style: TextStyle(
                             color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.8) : Colors.grey.shade600,
                             fontSize: 12,
                           ),
                         ),
-                        const SizedBox(width: 4),
-                        Text(
-                          company['code']!,
+                        const SizedBox(width: 10),
+                        if(item.voucher != '') Text(
+                          'voucher: ${item.voucher ?? ''}',
                           style: TextStyle(
                             color: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.8) : Colors.grey.shade600,
                             fontSize: 12,
@@ -298,8 +398,9 @@ class _HomeState extends State<Home> {
                   ),
                   onTap: () {
                     setState(() {
-                      selectedCompanyCode = company['code']!;
-                      _updateFormFields(company); 
+                      selectedCompanyCode = item.id ?? '';
+                      dataTkReciptOnly = item;
+                      _updateFormFields(item);
                     });
                   },
                 ),
@@ -330,7 +431,6 @@ class _HomeState extends State<Home> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Modern Header for the Card
             Row(
               children: [
                 Container(
@@ -340,7 +440,7 @@ class _HomeState extends State<Home> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
-                    Icons.domain, // Business/Building icon
+                    Icons.domain,
                     color: Theme.of(context).colorScheme.primary,
                     size: 20,
                   ),
@@ -356,13 +456,10 @@ class _HomeState extends State<Home> {
                 ),
               ],
             ),
-            
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16.0),
               child: Divider(height: 1, color: Color(0xFFEEEEEE)),
             ),
-
-            // Form Fields Layout
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -398,7 +495,7 @@ class _HomeState extends State<Home> {
             ? Icon(icon, size: 20, color: Colors.grey.shade400) 
             : null,
         filled: true,
-        fillColor: Colors.grey.shade50, // Soft background color
+        fillColor: Colors.grey.shade50,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
@@ -411,7 +508,6 @@ class _HomeState extends State<Home> {
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.5),
         ),
-        // Adjust padding to make it breathe
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16), 
       ),
     );
@@ -439,6 +535,19 @@ class _HomeState extends State<Home> {
           fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
         ),
         textAlign: textAlign,
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(IconData icon, String title) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 48, color: Colors.grey.shade300), //inbox_rounded
+          const SizedBox(height: 16),
+          Text(title, style: TextStyle(fontSize: 18, color: Colors.grey.shade500)),
+        ],
       ),
     );
   }
